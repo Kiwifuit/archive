@@ -1,6 +1,6 @@
-use archive_sys::archive;
-use std::path::Path;
-use std::path::PathBuf;
+// use archive_sys::archive;
+// use std::path::Path;
+// use std::path::PathBuf;
 
 // Compression algorithms
 pub type ArchiveCompression = u32;

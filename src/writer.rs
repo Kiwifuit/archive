@@ -4,7 +4,6 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::core::ArchiveCompression;
-use crate::core::ArchiveFormat;
 use crate::core::ArchiveOptions;
 use archive_sys::archive;
 use archive_sys::archive_write_new;
@@ -191,7 +190,7 @@ mod tests {
     fn archive_works() {
         // Should be format = TAR and compression = NONE
         let options = ArchiveOptions::default().with_format(ARCHIVE_FORMAT_TAR);
-        let archive = ArchiveWriter::new("file", &options);
+        let archive = ArchiveWriter::new("file.tar", &options);
 
         assert!(archive.is_ok());
     }
