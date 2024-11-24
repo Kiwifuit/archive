@@ -1,7 +1,5 @@
-use std::{
-    ffi::{CString, OsStr},
-    os::unix::ffi::OsStrExt,
-};
+use std::ffi::CString;
+use std::ffi::OsStr;
 
 use archive_sys::archive;
 
@@ -21,7 +19,7 @@ impl ArchiveReader {
         let result = unsafe {
             archive_sys::archive_read_open_filename(
                 handle,
-                CString::new(filename.as_ref().as_bytes())
+                CString::new(filename.as_ref().as_encoded_bytes())
                     .unwrap()
                     .into_raw() as *const i8,
                 10240,
@@ -35,8 +33,9 @@ impl ArchiveReader {
         }
     }
 
-    pub fn list(&self) {
+    pub fn list(&self) -> impl Iterator<Item = String> {
         let mut entry = std::ptr::null_mut();
+        let mut files = vec![];
 
         while unsafe { archive_sys::archive_read_next_header(self.handle, &mut entry) }
             == archive_sys::ARCHIVE_OK as i32
@@ -50,8 +49,23 @@ impl ArchiveReader {
                 let name = unsafe { std::ffi::CStr::from_ptr(entry_name) }
                     .to_string_lossy()
                     .into_owned();
-                println!("Found file in archive: {}", name);
+                files.push(name);
             }
+        }
+
+        files.into_iter()
+    }
+}
+
+impl Drop for ArchiveReader {
+    fn drop(&mut self) {
+        let ret = unsafe { archive_sys::archive_read_close(self.handle) } as i32;
+
+        if ret != archive_sys::ARCHIVE_OK as i32 {
+            panic!(
+                "failed to drop archive reader: {}",
+                crate::get_error(self.handle, ret)
+            );
         }
     }
 }
@@ -66,6 +80,8 @@ mod tests {
 
         assert!(reader.is_some());
 
-        reader.unwrap().list();
+        for file in reader.unwrap().list() {
+            println!("Found: {}", file);
+        }
     }
 }
