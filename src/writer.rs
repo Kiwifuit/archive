@@ -106,23 +106,13 @@ fn set_compression(
 
 fn handle_error(handle: Archive, result: i32) -> Result<(), ArchiveWriteError> {
     if result != 0 {
-        let err_ptr = unsafe { archive_sys::archive_error_string(handle) };
-
-        if err_ptr.is_null() {
-            panic!(
-                "the C function called did not return 0, yet also did not return an error message"
-            );
-        }
-
-        let err_msg = unsafe { CString::from_raw(err_ptr as *mut i8) };
-
-        return Err(ArchiveWriteError::Archive(
+        Err(ArchiveWriteError::Archive(
             result,
-            err_msg.to_string_lossy().to_string(),
-        ));
+            crate::get_error(handle, result).to_string(),
+        ))
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }
 
 // fn set_format(handle: Archive, format: ArchiveFormat) -> Result<(), ArchiveWriteError> {
