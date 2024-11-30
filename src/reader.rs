@@ -1,7 +1,12 @@
-use std::ffi::CString;
 use std::ffi::OsStr;
+use std::ffi::{CStr, CString};
+use std::fmt::Display;
+use std::path::{Path, PathBuf};
 
 use archive_sys::archive;
+use archive_sys::archive_entry;
+
+use crate::get_error;
 
 pub struct ArchiveReader {
     handle: *mut archive,
@@ -33,33 +38,25 @@ impl ArchiveReader {
         }
     }
 
-    pub fn list(&self) -> impl Iterator<Item = String> {
-        let mut entry = std::ptr::null_mut();
-        let mut files = vec![];
+    pub fn entries(&self) -> ArchiveIterator<'_> {
+        ArchiveIterator { archive: self }
+    }
 
-        while unsafe { archive_sys::archive_read_next_header(self.handle, &mut entry) }
-            == archive_sys::ARCHIVE_OK as i32
-        {
-            if entry.is_null() {
-                break;
-            }
+    fn get_next_header(&self) -> Option<*mut archive_entry> {
+        let mut entry: *mut archive_entry = std::ptr::null_mut();
+        let ret = unsafe { archive_sys::archive_read_next_header(self.handle, &mut entry) };
 
-            let entry_name = unsafe { archive_sys::archive_entry_pathname(entry) };
-            if !entry_name.is_null() {
-                let name = unsafe { std::ffi::CStr::from_ptr(entry_name) }
-                    .to_string_lossy()
-                    .into_owned();
-                files.push(name);
-            }
+        if ret == archive_sys::ARCHIVE_OK as i32 && !entry.is_null() {
+            Some(entry)
+        } else {
+            None
         }
-
-        files.into_iter()
     }
 }
 
 impl Drop for ArchiveReader {
     fn drop(&mut self) {
-        let ret = unsafe { archive_sys::archive_read_close(self.handle) } as i32;
+        let ret = unsafe { archive_sys::archive_read_close(self.handle) };
 
         if ret != archive_sys::ARCHIVE_OK as i32 {
             panic!(
@@ -67,6 +64,61 @@ impl Drop for ArchiveReader {
                 crate::get_error(self.handle, ret)
             );
         }
+
+        let ret = unsafe { archive_sys::archive_free(self.handle) };
+
+        if ret != archive_sys::ARCHIVE_OK as i32 {
+            panic!(
+                "failed to drop archive reader: {}",
+                crate::get_error(self.handle, ret)
+            );
+        }
+    }
+}
+
+pub struct ArchiveEntry {
+    entry: *mut archive_entry,
+}
+
+impl Display for ArchiveEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ArchiveEntry(filename = {})",
+            self.path()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or(String::from("<unknown>"))
+        )
+    }
+}
+
+impl ArchiveEntry {
+    pub fn path(&self) -> Option<PathBuf> {
+        let raw_path = unsafe { archive_sys::archive_entry_pathname(self.entry) };
+
+        if !raw_path.is_null() {
+            let path = unsafe { CStr::from_ptr(raw_path) }
+                .to_string_lossy()
+                .to_string();
+
+            Some(PathBuf::from(path))
+        } else {
+            None
+        }
+    }
+}
+
+pub struct ArchiveIterator<'a> {
+    archive: &'a ArchiveReader,
+}
+
+impl<'a> Iterator for ArchiveIterator<'a> {
+    type Item = ArchiveEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.archive.get_next_header()?;
+
+        Some(ArchiveEntry { entry })
     }
 }
 
@@ -80,8 +132,12 @@ mod tests {
 
         assert!(reader.is_some());
 
-        for file in reader.unwrap().list() {
+        for file in reader.unwrap().entries() {
             println!("Found: {}", file);
+
+            file.path();
+
+            assert!(file.path().is_some());
         }
     }
 }
