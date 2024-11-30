@@ -1,12 +1,10 @@
 use std::ffi::OsStr;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use archive_sys::archive;
 use archive_sys::archive_entry;
-
-use crate::get_error;
 
 pub struct ArchiveReader {
     handle: *mut archive,
