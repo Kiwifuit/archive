@@ -1,10 +1,14 @@
 use std::ffi::OsStr;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
+use std::fs::{create_dir_all, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 
 use archive_sys::archive;
 use archive_sys::archive_entry;
+
+const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 pub struct ArchiveReader {
     handle: *mut archive,
@@ -75,6 +79,7 @@ impl Drop for ArchiveReader {
 }
 
 pub struct ArchiveEntry {
+    archive: *mut archive,
     entry: *mut archive_entry,
 }
 
@@ -82,10 +87,11 @@ impl Display for ArchiveEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ArchiveEntry(filename = {})",
+            "ArchiveEntry(filename = {}, size = {})",
             self.path()
                 .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or(String::from("<unknown>"))
+                .unwrap_or(String::from("<unknown>")),
+            self.size()
         )
     }
 }
@@ -104,6 +110,58 @@ impl ArchiveEntry {
             None
         }
     }
+
+    pub fn size(&self) -> i64 {
+        unsafe { archive_sys::archive_entry_size(self.entry) }
+    }
+
+    pub fn extract<P: AsRef<std::path::Path>>(
+        &self,
+        base_dir: P,
+        chunk_size: Option<usize>,
+    ) -> std::io::Result<usize> {
+        let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
+        let mut written_total = 0;
+        let total_size = self.size();
+        let mut chunk = vec![0; chunk_size];
+        let out_path = base_dir.as_ref().join(self.path().unwrap());
+
+        if let Some(parent) = out_path.parent() {
+            create_dir_all(parent)?;
+        }
+
+        let mut out_file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(out_path)?;
+
+        while written_total <= total_size {
+            let bytes_read = unsafe {
+                archive_sys::archive_read_data(
+                    self.archive,
+                    chunk.as_mut_ptr() as *mut std::ffi::c_void,
+                    chunk_size,
+                )
+            };
+
+            if bytes_read > 0 {
+                assert!(!chunk.is_empty(), "chunk is empty when reported otherwise");
+
+                let read_slice = &chunk[..bytes_read as usize];
+                out_file.write_all(read_slice)?;
+            }
+
+            written_total += bytes_read as i64;
+        }
+
+        assert_eq!(
+            written_total, total_size,
+            "mismatch between file size in archive and total read data"
+        );
+
+        Ok(written_total as usize)
+    }
 }
 
 pub struct ArchiveIterator<'a> {
@@ -116,7 +174,10 @@ impl<'a> Iterator for ArchiveIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.archive.get_next_header()?;
 
-        Some(ArchiveEntry { entry })
+        Some(ArchiveEntry {
+            entry,
+            archive: self.archive.handle,
+        })
     }
 }
 
@@ -136,6 +197,28 @@ mod tests {
             file.path();
 
             assert!(file.path().is_some());
+        }
+    }
+
+    #[test]
+    fn test_extract() {
+        let reader = ArchiveReader::new("test.tar");
+        let base_dir = PathBuf::from("target/run");
+
+        assert!(reader.is_some());
+
+        for file in reader.unwrap().entries() {
+            println!("Found: {}", file);
+
+            let extracted = file.extract(&base_dir, None);
+
+            assert!(extracted.is_ok());
+
+            println!(
+                "Extracted {} ({} bytes)",
+                file.path().unwrap().display(),
+                extracted.unwrap()
+            );
         }
     }
 }
