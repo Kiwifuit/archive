@@ -5,8 +5,7 @@ pub mod reader;
 pub mod writer;
 
 pub use core::ArchiveOptions;
-use std::io;
-use std::path::Ancestors;
+pub use reader::ArchiveReader;
 pub use writer::ArchiveWriter;
 
 use std::borrow::Cow;
