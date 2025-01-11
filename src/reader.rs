@@ -7,15 +7,17 @@ use std::path::PathBuf;
 
 use archive_sys::archive;
 use archive_sys::archive_entry;
+use log::debug;
 
 const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 pub struct ArchiveReader {
     handle: *mut archive,
+    chunk_size: usize,
 }
 
 impl ArchiveReader {
-    pub fn new<P: AsRef<OsStr>>(filename: P) -> Option<Self> {
+    pub fn new<P: AsRef<OsStr>>(filename: P, chunk_size: Option<usize>) -> Option<Self> {
         let handle = unsafe { archive_sys::archive_read_new() };
 
         unsafe {
@@ -36,7 +38,8 @@ impl ArchiveReader {
         if result != 0 {
             None
         } else {
-            Some(Self { handle })
+            let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
+            Some(Self { handle, chunk_size })
         }
     }
 
@@ -78,9 +81,28 @@ impl Drop for ArchiveReader {
     }
 }
 
+pub struct ArchiveIterator<'a> {
+    archive: &'a ArchiveReader,
+}
+
+impl Iterator for ArchiveIterator<'_> {
+    type Item = ArchiveEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.archive.get_next_header()?;
+
+        Some(ArchiveEntry {
+            entry,
+            archive: self.archive.handle,
+            chunk_size: self.archive.chunk_size,
+        })
+    }
+}
+
 pub struct ArchiveEntry {
     archive: *mut archive,
     entry: *mut archive_entry,
+    chunk_size: usize,
 }
 
 impl Display for ArchiveEntry {
@@ -98,7 +120,7 @@ impl Display for ArchiveEntry {
 
 impl ArchiveEntry {
     pub fn path(&self) -> Option<PathBuf> {
-        let raw_path = unsafe { archive_sys::archive_entry_pathname(self.entry) };
+        let raw_path: *const i8 = unsafe { archive_sys::archive_entry_pathname(self.entry) };
 
         if !raw_path.is_null() {
             let path = unsafe { CStr::from_ptr(raw_path) }
@@ -115,20 +137,17 @@ impl ArchiveEntry {
         unsafe { archive_sys::archive_entry_size(self.entry) }
     }
 
-    pub fn extract<P: AsRef<std::path::Path>>(
-        &self,
-        base_dir: P,
-        chunk_size: Option<usize>,
-    ) -> std::io::Result<usize> {
-        let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
-        let mut written_total = 0;
+    pub fn extract<P: AsRef<std::path::Path>>(&self, base_dir: P) -> std::io::Result<usize> {
+        let mut total_read_bytes = 0;
         let total_size = self.size();
-        let mut chunk = vec![0; chunk_size];
+        let mut chunk = vec![0; self.chunk_size];
         let out_path = base_dir.as_ref().join(self.path().unwrap());
 
         if let Some(parent) = out_path.parent() {
             create_dir_all(parent)?;
         }
+
+        debug!("Extracting file `{}`", self.path().unwrap().display());
 
         let mut out_file = OpenOptions::new()
             .create(true)
@@ -136,14 +155,16 @@ impl ArchiveEntry {
             .write(true)
             .open(out_path)?;
 
-        while written_total <= total_size {
+        while total_read_bytes != total_size {
             let bytes_read = unsafe {
                 archive_sys::archive_read_data(
                     self.archive,
                     chunk.as_mut_ptr() as *mut std::ffi::c_void,
-                    chunk_size,
+                    self.chunk_size,
                 )
             };
+
+            total_read_bytes += bytes_read as i64;
 
             if bytes_read > 0 {
                 assert!(!chunk.is_empty(), "chunk is empty when reported otherwise");
@@ -151,33 +172,15 @@ impl ArchiveEntry {
                 let read_slice = &chunk[..bytes_read as usize];
                 out_file.write_all(read_slice)?;
             }
-
-            written_total += bytes_read as i64;
         }
 
         assert_eq!(
-            written_total, total_size,
+            total_read_bytes, total_size,
             "mismatch between file size in archive and total read data"
         );
 
-        Ok(written_total as usize)
-    }
-}
-
-pub struct ArchiveIterator<'a> {
-    archive: &'a ArchiveReader,
-}
-
-impl<'a> Iterator for ArchiveIterator<'a> {
-    type Item = ArchiveEntry;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.archive.get_next_header()?;
-
-        Some(ArchiveEntry {
-            entry,
-            archive: self.archive.handle,
-        })
+        debug!("File `{}` extracted", self.path().unwrap().display());
+        Ok(total_read_bytes as usize)
     }
 }
 
@@ -187,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_reader() {
-        let reader = ArchiveReader::new("test.tar");
+        let reader = ArchiveReader::new("test.tar", None);
 
         assert!(reader.is_some());
 
