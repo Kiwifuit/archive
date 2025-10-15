@@ -291,6 +291,16 @@ impl ArchiveEntry<'_> {
         self.metadata().st_size
     }
 
+    /// Fetches metadata about the entry
+    ///
+    /// Similar to `archive_path`, subsequent calls to
+    /// `metadata` clone the original data stored after
+    /// the first call.
+    ///
+    /// # Errors
+    ///
+    /// When the underlying call to `archive_entry_stat(3)`
+    /// fails, the returned metadata is blank
     pub fn metadata(&self) -> &EntryMetadata {
         self.metadata.get_or_init(|| {
             let raw_stat = unsafe { archive_sys::archive_entry_stat(self.entry) };
