@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.90"
-archive-sys = { path = "../archive-sys" }
+archive-sys = { version = "3.7.7", registry = "dev" }
 log = "0.4.24"
 thiserror = "1.0.64"
 

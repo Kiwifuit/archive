@@ -80,6 +80,8 @@ dependencies = [
 [[package]]
 name = "archive-sys"
 version = "3.7.7"
+source = "registry+https://dl.cloudsmith.io/public/inhumane/hello-world/cargo/index.git"
+checksum = "e52a03e4abefa2ff47bcd9700a6f5872dc155dbda1a8e2f5ebf91e125186a969"
 dependencies = [
  "anyhow",
  "bindgen",
