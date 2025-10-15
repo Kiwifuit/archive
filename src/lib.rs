@@ -1,6 +1,7 @@
 //! `archive`: Safe Rust bindings to `libarchive`
 
 pub mod core;
+pub mod error;
 pub mod reader;
 pub mod writer;
 
@@ -23,6 +24,10 @@ fn get_error<'a>(handle: *mut archive_sys::archive, result: i32) -> Cow<'a, str>
     }
 
     let err = unsafe { CStr::from_ptr(e_ptr) };
+
+    // unsafe {
+    //     archive_sys::archive_clear_error(handle);
+    // }
 
     err.to_string_lossy()
 }

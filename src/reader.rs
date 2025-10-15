@@ -3,6 +3,7 @@ use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use archive_sys::archive;
@@ -11,29 +12,57 @@ use archive_sys::archive_entry;
 use bon::Builder;
 use log::debug;
 
+use crate::error::Result;
+
 const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 #[derive(Builder)]
 pub struct ArchiveReader {
+    #[builder(skip = false)]
+    open: bool,
+
     #[builder(skip = std::ptr::null_mut())]
     handle: *mut archive,
 
     #[builder(default = DEFAULT_CHUNK_SIZE)]
     chunk_size: usize,
+
+    #[builder(skip)]
+    _marker: PhantomData<*mut archive>,
 }
 
 impl ArchiveReader {
-    pub fn open<P: AsRef<OsStr>>(&self, file_path: P) -> Option<()> {
-        let handle = unsafe { archive_sys::archive_read_new() };
+    pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
+        if self.open {
+            return Err(crate::error::Error::AlreadyOpen);
+        }
+
+        if self.handle.is_null() {
+            let handle = unsafe { archive_sys::archive_read_new() };
+
+            if handle.is_null() {
+                return Err(crate::error::Error::Initialization);
+            }
+
+            self.handle = handle;
+        }
 
         unsafe {
-            archive_sys::archive_read_support_filter_all(handle);
-            archive_sys::archive_read_support_format_all(handle);
+            if archive_sys::archive_read_support_filter_all(self.handle)
+                != archive_sys::ARCHIVE_OK as i32
+            {
+                return Err(crate::error::Error::Initialization);
+            }
+            if archive_sys::archive_read_support_format_all(self.handle)
+                != archive_sys::ARCHIVE_OK as i32
+            {
+                return Err(crate::error::Error::Initialization);
+            }
         };
 
         let result = unsafe {
             archive_sys::archive_read_open_filename(
-                handle,
+                self.handle,
                 CString::new(file_path.as_ref().as_encoded_bytes())
                     .unwrap()
                     .into_raw() as *const i8,
@@ -42,10 +71,12 @@ impl ArchiveReader {
         };
 
         if result != archive_sys::ARCHIVE_OK as i32 {
-            None
-        } else {
-            Some(())
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, result).to_string(),
+                code: result,
+            });
         }
+        Ok(())
     }
 
     pub fn entries(&self) -> ArchiveIterator<'_> {
@@ -195,11 +226,9 @@ mod tests {
 
     #[test]
     fn test_reader() {
-        let reader = ArchiveReader::builder().build();
+        let mut reader = ArchiveReader::builder().build();
 
-        let open_result = reader.open("test.tar");
-
-        assert!(open_result.is_some());
+        assert!(reader.open("test.tar").is_ok());
 
         for file in reader.entries() {
             println!("Found: {}", file);
