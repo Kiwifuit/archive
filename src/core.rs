@@ -7,6 +7,9 @@ pub struct ArchiveOptions {
 
     #[builder(default)]
     pub(crate) format: ArchiveFormat,
+
+    #[builder(default = 10240)]
+    pub(crate) handle_block_size: usize,
 }
 
 #[repr(u32)]

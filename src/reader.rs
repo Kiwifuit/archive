@@ -40,9 +40,7 @@ impl ArchiveReader {
     pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
         if self.open {
             return Err(crate::error::Error::AlreadyOpen);
-        }
-
-        if self.handle.is_null() {
+        } else if self.handle.is_null() {
             let handle = unsafe { archive_sys::archive_read_new() };
 
             if handle.is_null() {
@@ -52,6 +50,29 @@ impl ArchiveReader {
             self.handle = handle;
         }
 
+        self.set_options()?;
+
+        let open_result = unsafe {
+            archive_sys::archive_read_open_filename(
+                self.handle,
+                CString::new(file_path.as_ref().as_encoded_bytes())
+                    .unwrap()
+                    .into_raw() as *const i8,
+                self.options.handle_block_size,
+            )
+        };
+
+        if open_result != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, open_result).to_string(),
+                code: open_result,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn set_options(&self) -> Result<()> {
         let filter_result = if self.options.filter == ArchiveFilter::Auto {
             unsafe { archive_sys::archive_read_support_filter_all(self.handle) }
         } else {
@@ -88,22 +109,6 @@ impl ArchiveReader {
             });
         }
 
-        let open_result = unsafe {
-            archive_sys::archive_read_open_filename(
-                self.handle,
-                CString::new(file_path.as_ref().as_encoded_bytes())
-                    .unwrap()
-                    .into_raw() as *const i8,
-                10240,
-            )
-        };
-
-        if open_result != archive_sys::ARCHIVE_OK as i32 {
-            return Err(crate::error::Error::Archive {
-                message: crate::get_error(self.handle, open_result).to_string(),
-                code: open_result,
-            });
-        }
         Ok(())
     }
 
