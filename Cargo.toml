@@ -2,6 +2,10 @@
 name = "archive"
 version = "0.2.0"
 edition = "2021"
+description = "Safe Rust bindings for libarchive"
+readme = "README.md"
+license-file = "LICENSE"
+repository = "https://github.com/Kiwifuit/archive"
 
 [dependencies]
 anyhow = "1.0.90"
