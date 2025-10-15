@@ -42,7 +42,7 @@ pub struct ArchiveReader {
     handle_opts: ArchiveOptions,
 
     #[builder(skip)]
-    _marker: PhantomData<*mut archive>,
+    _marker: PhantomData<*mut UnsafeCell<archive>>,
 }
 
 impl ArchiveReader {
@@ -165,40 +165,28 @@ pub struct ArchiveIterator<'a> {
     archive: &'a ArchiveReader,
 }
 
-impl Iterator for ArchiveIterator<'_> {
-    type Item = ArchiveEntry;
+impl<'a> Iterator for ArchiveIterator<'a> {
+    type Item = ArchiveEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.archive.get_next_header()?;
 
         Some(ArchiveEntry {
             entry,
-            archive: self.archive.handle,
-            chunk_size: self.archive.chunk_size,
+            archive: self.archive,
+            _marker: PhantomData,
         })
     }
 }
 
-pub struct ArchiveEntry {
-    archive: *mut archive,
+pub struct ArchiveEntry<'a> {
+    archive: &'a ArchiveReader,
     entry: *mut archive_entry,
-    chunk_size: usize,
+    
+    _marker: PhantomData<&'a archive_entry>,
 }
 
-impl Display for ArchiveEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ArchiveEntry(filename = {}, size = {})",
-            self.path()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or(String::from("<unknown>")),
-            self.size()
-        )
-    }
-}
-
-impl ArchiveEntry {
+impl ArchiveEntry<'_> {
     pub fn path(&self) -> Option<PathBuf> {
         let raw_path: *const i8 = unsafe { archive_sys::archive_entry_pathname(self.entry) };
 
@@ -220,7 +208,7 @@ impl ArchiveEntry {
     pub fn extract<P: AsRef<std::path::Path>>(&self, base_dir: P) -> std::io::Result<usize> {
         let mut total_read_bytes = 0;
         let total_size = self.size();
-        let mut chunk = vec![0; self.chunk_size];
+        let mut chunk = vec![0; self.archive.chunk_size];
         let out_path = base_dir.as_ref().join(self.path().unwrap());
 
         if let Some(parent) = out_path.parent() {
@@ -238,9 +226,9 @@ impl ArchiveEntry {
         while total_read_bytes != total_size {
             let bytes_read = unsafe {
                 archive_sys::archive_read_data(
-                    self.archive,
+                    self.archive.handle,
                     chunk.as_mut_ptr() as *mut std::ffi::c_void,
-                    self.chunk_size,
+                    self.archive.chunk_size,
                 )
             };
 
@@ -282,7 +270,11 @@ mod tests {
         assert!(result.is_ok());
 
         for file in reader.entries() {
-            println!("Found: {}", file);
+            println!(
+                "Found\t: {} ({} bytes)",
+                file.path().unwrap().display(),
+                file.size()
+            );
 
             file.path();
 
