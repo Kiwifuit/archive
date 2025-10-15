@@ -1,3 +1,4 @@
+use std::cell::UnsafeCell;
 use std::ffi::OsStr;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
@@ -46,7 +47,7 @@ pub struct ArchiveReader {
 }
 
 impl ArchiveReader {
-/// Opens `file_path` and marks the current instance as
+    /// Opens `file_path` and marks the current instance as
     /// having opened a file. This means that even after closing
     pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
         if self.open {
@@ -80,6 +81,50 @@ impl ArchiveReader {
             });
         }
 
+        self.open = true;
+        Ok(())
+    }
+
+    /// Returns an iterator containing the contents of
+    /// the archive.
+    pub fn entries<'a>(&'a self) -> ArchiveIterator<'a> {
+        ArchiveIterator { archive: self }
+    }
+
+    /// Closes the file and frees the resources
+    /// used by this struct.
+    ///
+    /// Normally, this function would be called
+    /// on `Drop`, so this shouldn't be called
+    /// unless this `ArchiveReader` is going
+    /// to be re-used.
+    ///
+    /// Does nothing when the archive isn't
+    /// `.open()`
+    pub fn close(&mut self) -> Result<()> {
+        if !self.open {
+            return Ok(());
+        }
+
+        let ret = unsafe { archive_sys::archive_read_close(self.handle) };
+
+        if ret != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, ret).to_string(),
+                code: ret,
+            });
+        }
+
+        let ret = unsafe { archive_sys::archive_free(self.handle) };
+
+        if ret != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, ret).to_string(),
+                code: ret,
+            });
+        }
+
+        self.open = false;
         Ok(())
     }
 
@@ -123,10 +168,6 @@ impl ArchiveReader {
         Ok(())
     }
 
-    pub fn entries(&self) -> ArchiveIterator<'_> {
-        ArchiveIterator { archive: self }
-    }
-
     fn get_next_header(&self) -> Option<*mut archive_entry> {
         let mut entry: *mut archive_entry = std::ptr::null_mut();
         let ret = unsafe { archive_sys::archive_read_next_header(self.handle, &mut entry) };
@@ -141,22 +182,8 @@ impl ArchiveReader {
 
 impl Drop for ArchiveReader {
     fn drop(&mut self) {
-        let ret = unsafe { archive_sys::archive_read_close(self.handle) };
-
-        if ret != archive_sys::ARCHIVE_OK as i32 {
-            panic!(
-                "failed to drop archive reader: {}",
-                crate::get_error(self.handle, ret)
-            );
-        }
-
-        let ret = unsafe { archive_sys::archive_free(self.handle) };
-
-        if ret != archive_sys::ARCHIVE_OK as i32 {
-            panic!(
-                "failed to drop archive reader: {}",
-                crate::get_error(self.handle, ret)
-            );
+        if let Err(e) = self.close() {
+            panic!("failed to drop archive reader: {}", e);
         }
     }
 }
@@ -182,7 +209,7 @@ impl<'a> Iterator for ArchiveIterator<'a> {
 pub struct ArchiveEntry<'a> {
     archive: &'a ArchiveReader,
     entry: *mut archive_entry,
-    
+
     _marker: PhantomData<&'a archive_entry>,
 }
 
