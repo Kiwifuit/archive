@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.90"
 archive-sys = { version = "3.7.7", registry = "dev" }
+bon = "3.8.1"
 log = "0.4.24"
 thiserror = "1.0.64"
 

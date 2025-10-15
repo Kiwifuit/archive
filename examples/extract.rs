@@ -6,12 +6,12 @@ fn main() {
     colog::init();
 
     info!("Reading `test.tar`");
-    let reader = ArchiveReader::new("test.tar", None);
+    let reader = ArchiveReader::builder().build();
     let base_dir = PathBuf::from("target/run");
 
-    assert!(reader.is_some());
+    reader.open("test.tar").expect("Failed to open archive");
 
-    for file in reader.unwrap().entries() {
+    for file in reader.entries() {
         info!("Found: {}", file);
 
         let extracted = file.extract(&base_dir);

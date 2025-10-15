@@ -7,17 +7,23 @@ use std::path::PathBuf;
 
 use archive_sys::archive;
 use archive_sys::archive_entry;
+
+use bon::Builder;
 use log::debug;
 
 const DEFAULT_CHUNK_SIZE: usize = 1024;
 
+#[derive(Builder)]
 pub struct ArchiveReader {
+    #[builder(skip = std::ptr::null_mut())]
     handle: *mut archive,
+
+    #[builder(default = DEFAULT_CHUNK_SIZE)]
     chunk_size: usize,
 }
 
 impl ArchiveReader {
-    pub fn new<P: AsRef<OsStr>>(filename: P, chunk_size: Option<usize>) -> Option<Self> {
+    pub fn open<P: AsRef<OsStr>>(&self, file_path: P) -> Option<()> {
         let handle = unsafe { archive_sys::archive_read_new() };
 
         unsafe {
@@ -28,18 +34,17 @@ impl ArchiveReader {
         let result = unsafe {
             archive_sys::archive_read_open_filename(
                 handle,
-                CString::new(filename.as_ref().as_encoded_bytes())
+                CString::new(file_path.as_ref().as_encoded_bytes())
                     .unwrap()
                     .into_raw() as *const i8,
                 10240,
             )
         };
 
-        if result != 0 {
+        if result != archive_sys::ARCHIVE_OK as i32 {
             None
         } else {
-            let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
-            Some(Self { handle, chunk_size })
+            Some(())
         }
     }
 
@@ -190,11 +195,13 @@ mod tests {
 
     #[test]
     fn test_reader() {
-        let reader = ArchiveReader::new("test.tar", None);
+        let reader = ArchiveReader::builder().build();
 
-        assert!(reader.is_some());
+        let open_result = reader.open("test.tar");
 
-        for file in reader.unwrap().entries() {
+        assert!(open_result.is_some());
+
+        for file in reader.entries() {
             println!("Found: {}", file);
 
             file.path();
