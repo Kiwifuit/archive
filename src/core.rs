@@ -3,12 +3,34 @@ use bon::Builder;
 #[derive(Builder, Default)]
 pub struct ArchiveOptions {
     #[builder(default)]
+    /// The kind of filter to be used. The default
+    /// tells `libarchive` to analyze the file and
+    /// automatically determine the compression
+    /// filter.
+    ///
+    /// Note that the default value of this field
+    /// only works with [`crate::reader::ArchiveReader`]
     pub(crate) filter: ArchiveFilter,
 
     #[builder(default)]
+    /// The kind of format to be used. The default
+    /// tells `libarchive` to analyze the file and
+    /// automatically determine the archive format.
+    ///
+    /// Note that the default value of this field
+    /// only works with [`crate::reader::ArchiveReader`]
     pub(crate) format: ArchiveFormat,
 
     #[builder(default = 10240)]
+    /// The buffer size of the handle. Similar
+    /// to [`crate::reader::ArchiveReader`]'s
+    /// `chunk_size` field, bigger is better at
+    /// the cost of memory usage.
+    ///
+    /// This value is used within the C library
+    /// when detecting the format and general
+    /// archive processing, and it set to
+    /// 10KiB by default
     pub(crate) handle_block_size: usize,
 }
 

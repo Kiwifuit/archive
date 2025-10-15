@@ -16,8 +16,6 @@ use crate::core::{ArchiveFilter, ArchiveFormat};
 use crate::error::Result;
 use crate::ArchiveOptions;
 
-const DEFAULT_CHUNK_SIZE: usize = 1024;
-
 #[derive(Builder)]
 pub struct ArchiveReader {
     #[builder(skip = false)]
@@ -26,17 +24,30 @@ pub struct ArchiveReader {
     #[builder(skip = std::ptr::null_mut())]
     handle: *mut archive,
 
-    #[builder(default = DEFAULT_CHUNK_SIZE)]
+    #[builder(default = 1024)]
+    /// The size of the buffer to be used when
+    /// extracting files. Bigger buffers mean
+    /// less system calls (especially for large
+    /// files) at the cost of memory consumption.
+    ///
+    /// This value is used in the Rust library
+    /// when extracting files from the archive,
+    /// and is set to 1KiB by default.
     chunk_size: usize,
 
     #[builder(default)]
-    options: ArchiveOptions,
+    /// Set of options to be passed for the
+    /// handle. Refer to [`crate::core::ArchiveOptions`]
+    /// for more information
+    handle_opts: ArchiveOptions,
 
     #[builder(skip)]
     _marker: PhantomData<*mut archive>,
 }
 
 impl ArchiveReader {
+/// Opens `file_path` and marks the current instance as
+    /// having opened a file. This means that even after closing
     pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
         if self.open {
             return Err(crate::error::Error::AlreadyOpen);
@@ -58,7 +69,7 @@ impl ArchiveReader {
                 CString::new(file_path.as_ref().as_encoded_bytes())
                     .unwrap()
                     .into_raw() as *const i8,
-                self.options.handle_block_size,
+                self.handle_opts.handle_block_size,
             )
         };
 
@@ -73,13 +84,13 @@ impl ArchiveReader {
     }
 
     fn set_options(&self) -> Result<()> {
-        let filter_result = if self.options.filter == ArchiveFilter::Auto {
+        let filter_result = if self.handle_opts.filter == ArchiveFilter::Auto {
             unsafe { archive_sys::archive_read_support_filter_all(self.handle) }
         } else {
             unsafe {
                 archive_sys::archive_read_support_filter_by_code(
                     self.handle,
-                    self.options.filter as i32,
+                    self.handle_opts.filter as i32,
                 )
             }
         };
@@ -91,13 +102,13 @@ impl ArchiveReader {
             });
         }
 
-        let format_result = if self.options.format == ArchiveFormat::Auto {
+        let format_result = if self.handle_opts.format == ArchiveFormat::Auto {
             unsafe { archive_sys::archive_read_support_format_all(self.handle) }
         } else {
             unsafe {
                 archive_sys::archive_read_support_format_by_code(
                     self.handle,
-                    self.options.format as i32,
+                    self.handle_opts.format as i32,
                 )
             }
         };
@@ -264,7 +275,7 @@ mod tests {
             .format(ArchiveFormat::Tar)
             .build();
 
-        let mut reader = ArchiveReader::builder().options(options).build();
+        let mut reader = ArchiveReader::builder().handle_opts(options).build();
 
         let result = reader.open("archive.tar.gz");
         dbg!(&result);
