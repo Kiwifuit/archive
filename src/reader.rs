@@ -4,13 +4,14 @@ use std::ffi::{CStr, CString};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use archive_sys::archive;
 use archive_sys::archive_entry;
 
 use bon::Builder;
-use log::debug;
+use log::{debug, error, info, warn};
 
 use crate::core::{ArchiveFilter, ArchiveFormat};
 use crate::error::Result;
@@ -50,6 +51,7 @@ impl ArchiveReader {
     /// having opened a file. This means that even after closing
     pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
         if self.open {
+            warn!("Archive already opened a file! Skipping...");
             return Err(crate::error::Error::AlreadyOpen);
         } else if self.handle.is_null() {
             let handle = unsafe { archive_sys::archive_read_new() };
@@ -63,6 +65,7 @@ impl ArchiveReader {
 
         self.set_options()?;
 
+        info!("Opening: {:?}", file_path.as_ref().display());
         let open_result = unsafe {
             archive_sys::archive_read_open_filename(
                 self.handle,
@@ -200,8 +203,42 @@ impl<'a> Iterator for ArchiveIterator<'a> {
         Some(ArchiveEntry {
             entry,
             archive: self.archive,
+            path: OnceLock::new(),
+            metadata: OnceLock::new(),
+
             _marker: PhantomData,
         })
+    }
+}
+
+// pub struct EntryTimeData {
+//     pub tv_sec: ::std::os::raw::c_long,
+//     pub tv_nsec: ::std::os::raw::c_long,
+// }
+
+#[derive(Default)]
+pub struct EntryMetadata {
+    // st_dev: std::os::raw::c_ulong,
+    // st_ino: std::os::raw::c_ulong,
+    // st_nlink: std::os::raw::c_ulong,
+    st_mode: ::std::os::raw::c_uint,
+    // st_uid: ::std::os::raw::c_uint,
+    // st_gid: ::std::os::raw::c_uint,
+    // __pad0: ::std::os::raw::c_int,
+    // st_rdev: std::os::raw::c_ulong,
+    st_size: ::std::os::raw::c_long,
+    // st_atim: EntryTimeData,
+    // st_mtim: EntryTimeData,
+    // st_ctim: EntryTimeData,
+}
+
+impl EntryMetadata {
+    pub fn is_dir(&self) -> bool {
+        (self.st_mode & archive_sys::S_IFMT) == archive_sys::S_IFDIR
+    }
+
+    pub fn is_file(&self) -> bool {
+        (self.st_mode & archive_sys::S_IFMT) == archive_sys::S_IFREG
     }
 }
 
@@ -209,39 +246,89 @@ pub struct ArchiveEntry<'a> {
     archive: &'a ArchiveReader,
     entry: *mut archive_entry,
 
+    // Memoized fields:
+    path: OnceLock<PathBuf>,
+    metadata: OnceLock<EntryMetadata>,
+
     _marker: PhantomData<&'a archive_entry>,
 }
 
-impl ArchiveEntry<'_> {
-    pub fn path(&self) -> Option<PathBuf> {
-        let raw_path: *const i8 = unsafe { archive_sys::archive_entry_pathname(self.entry) };
+impl AsRef<Path> for ArchiveEntry<'_> {
+    fn as_ref(&self) -> &Path {
+        self.archive_path()
+    }
+}
 
-        if !raw_path.is_null() {
+impl ArchiveEntry<'_> {
+    /// Fetches the path of this entry within the archive.
+    ///
+    /// This operation is only expensive on the first call.
+    /// Subsequent calls clone the original data stored
+    /// after the first fetch
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the underlying call to
+    /// `archive_entry_pathname(3)` fails
+    pub fn archive_path(&self) -> &Path {
+        self.path.get_or_init(|| {
+            let raw_path: *const i8 = unsafe { archive_sys::archive_entry_pathname(self.entry) };
+
+            if raw_path.is_null() {
+                error!("An unknown error occurred whilst trying to retrieve the pathname of an archive entry.");
+                panic!("An unknown error occurred whilst trying to retrieve the pathname of an archive entry.");
+            }
             let path = unsafe { CStr::from_ptr(raw_path) }
                 .to_string_lossy()
                 .to_string();
 
-            Some(PathBuf::from(path))
-        } else {
-            None
-        }
+            PathBuf::from(path)
+        })
     }
 
+    /// Fetches the size of the entry
     pub fn size(&self) -> i64 {
-        unsafe { archive_sys::archive_entry_size(self.entry) }
+        self.metadata().st_size
     }
 
-    pub fn extract<P: AsRef<std::path::Path>>(&self, base_dir: P) -> std::io::Result<usize> {
+    pub fn metadata(&self) -> &EntryMetadata {
+        self.metadata.get_or_init(|| {
+            let raw_stat = unsafe { archive_sys::archive_entry_stat(self.entry) };
+
+            if raw_stat.is_null() {
+                EntryMetadata::default()
+            } else {
+                let ent_stat: archive_sys::stat = unsafe { *raw_stat };
+                EntryMetadata {
+                    st_mode: ent_stat.st_mode,
+                    st_size: ent_stat.st_size,
+                }
+            }
+        })
+    }
+
+    /// Extracts the current entry onto an optional
+    /// `base_dir`. When unset, `base_dir` defaults
+    /// to the program's working directory
+    pub fn extract<P: AsRef<std::path::Path>>(
+        &self,
+        base_dir: Option<P>,
+    ) -> std::io::Result<usize> {
         let mut total_read_bytes = 0;
         let total_size = self.size();
         let mut chunk = vec![0; self.archive.chunk_size];
-        let out_path = base_dir.as_ref().join(self.path().unwrap());
+
+        let out_path = if let Some(base_dir) = base_dir {
+            base_dir.as_ref().join(self.archive_path())
+        } else {
+            std::env::current_dir()?.join(self.archive_path())
+        };
 
         if let Some(parent) = out_path.parent() {
             create_dir_all(parent)?;
         }
 
-        debug!("Extracting file `{}`", self.path().unwrap().display());
+        debug!("Extracting file `{}`", self.archive_path().display());
 
         let mut out_file = OpenOptions::new()
             .create(true)
@@ -273,7 +360,7 @@ impl ArchiveEntry<'_> {
             "mismatch between file size in archive and total read data"
         );
 
-        debug!("File `{}` extracted", self.path().unwrap().display());
+        debug!("File `{}` extracted", self.archive_path().display());
         Ok(total_read_bytes as usize)
     }
 }
@@ -298,13 +385,11 @@ mod tests {
         for file in reader.entries() {
             println!(
                 "Found\t: {} ({} bytes)",
-                file.path().unwrap().display(),
+                file.archive_path().display(),
                 file.size()
             );
 
-            file.path();
-
-            assert!(file.path().is_some());
+            file.archive_path();
         }
     }
 }
