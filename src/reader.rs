@@ -1,7 +1,6 @@
 use std::cell::UnsafeCell;
 use std::ffi::OsStr;
 use std::ffi::{CStr, CString};
-use std::fmt::Display;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::marker::PhantomData;

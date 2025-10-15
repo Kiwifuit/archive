@@ -12,7 +12,11 @@ fn main() {
     reader.open("test.tar").expect("Failed to open archive");
 
     for file in reader.entries() {
-        info!("Found: {}", file);
+        info!(
+            "Found\t: {} ({} bytes)",
+            file.path().unwrap().display(),
+            file.size()
+        );
 
         let extracted = file.extract(&base_dir);
 
