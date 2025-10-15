@@ -3,11 +3,11 @@
 pub mod core;
 pub mod error;
 pub mod reader;
-pub mod writer;
+// pub mod writer;
 
 pub use core::ArchiveOptions;
 pub use reader::ArchiveReader;
-pub use writer::ArchiveWriter;
+// pub use writer::ArchiveWriter;
 
 use std::borrow::Cow;
 use std::ffi::CStr;
