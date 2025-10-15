@@ -12,7 +12,9 @@ use archive_sys::archive_entry;
 use bon::Builder;
 use log::debug;
 
+use crate::core::{ArchiveFilter, ArchiveFormat};
 use crate::error::Result;
+use crate::ArchiveOptions;
 
 const DEFAULT_CHUNK_SIZE: usize = 1024;
 
@@ -26,6 +28,9 @@ pub struct ArchiveReader {
 
     #[builder(default = DEFAULT_CHUNK_SIZE)]
     chunk_size: usize,
+
+    #[builder(default)]
+    options: ArchiveOptions,
 
     #[builder(skip)]
     _marker: PhantomData<*mut archive>,
@@ -47,20 +52,43 @@ impl ArchiveReader {
             self.handle = handle;
         }
 
-        unsafe {
-            if archive_sys::archive_read_support_filter_all(self.handle)
-                != archive_sys::ARCHIVE_OK as i32
-            {
-                return Err(crate::error::Error::Initialization);
-            }
-            if archive_sys::archive_read_support_format_all(self.handle)
-                != archive_sys::ARCHIVE_OK as i32
-            {
-                return Err(crate::error::Error::Initialization);
+        let filter_result = if self.options.filter == ArchiveFilter::Auto {
+            unsafe { archive_sys::archive_read_support_filter_all(self.handle) }
+        } else {
+            unsafe {
+                archive_sys::archive_read_support_filter_by_code(
+                    self.handle,
+                    self.options.filter as i32,
+                )
             }
         };
 
-        let result = unsafe {
+        if filter_result != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, filter_result).to_string(),
+                code: filter_result,
+            });
+        }
+
+        let format_result = if self.options.format == ArchiveFormat::Auto {
+            unsafe { archive_sys::archive_read_support_format_all(self.handle) }
+        } else {
+            unsafe {
+                archive_sys::archive_read_support_format_by_code(
+                    self.handle,
+                    self.options.format as i32,
+                )
+            }
+        };
+
+        if format_result != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, format_result).to_string(),
+                code: format_result,
+            });
+        }
+
+        let open_result = unsafe {
             archive_sys::archive_read_open_filename(
                 self.handle,
                 CString::new(file_path.as_ref().as_encoded_bytes())
@@ -70,10 +98,10 @@ impl ArchiveReader {
             )
         };
 
-        if result != archive_sys::ARCHIVE_OK as i32 {
+        if open_result != archive_sys::ARCHIVE_OK as i32 {
             return Err(crate::error::Error::Archive {
-                message: crate::get_error(self.handle, result).to_string(),
-                code: result,
+                message: crate::get_error(self.handle, open_result).to_string(),
+                code: open_result,
             });
         }
         Ok(())
@@ -226,9 +254,16 @@ mod tests {
 
     #[test]
     fn test_reader() {
-        let mut reader = ArchiveReader::builder().build();
+        let options = ArchiveOptions::builder()
+            .filter(ArchiveFilter::Gzip)
+            .format(ArchiveFormat::Tar)
+            .build();
 
-        assert!(reader.open("test.tar").is_ok());
+        let mut reader = ArchiveReader::builder().options(options).build();
+
+        let result = reader.open("archive.tar.gz");
+        dbg!(&result);
+        assert!(result.is_ok());
 
         for file in reader.entries() {
             println!("Found: {}", file);

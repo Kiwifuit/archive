@@ -12,3 +12,104 @@ thiserror = "1.0.64"
 
 [dev-dependencies]
 colog = "1.3.0"
+
+[features]
+support_filter_auto = [
+  "support_filter_none",
+  "support_filter_gzip",
+  "support_filter_bzip2",
+  "support_filter_compress",
+  "support_filter_program",
+  "support_filter_lzma",
+  "support_filter_xz",
+  "support_filter_uu",
+  "support_filter_rpm",
+  "support_filter_lzip",
+  "support_filter_lrzip",
+  "support_filter_lzop",
+  "support_filter_grzip",
+  "support_filter_lz4",
+  "support_filter_zstd",
+]
+support_filter_none = []
+support_filter_gzip = []
+support_filter_bzip2 = []
+support_filter_compress = []
+support_filter_program = []
+support_filter_lzma = []
+support_filter_xz = []
+support_filter_uu = []
+support_filter_rpm = []
+support_filter_lzip = []
+support_filter_lrzip = []
+support_filter_lzop = []
+support_filter_grzip = []
+support_filter_lz4 = []
+support_filter_zstd = []
+
+support_format_auto = [
+  "support_format_cpio",
+  "support_format_cpioposix",
+  "support_format_cpiobinle",
+  "support_format_cpiobinbe",
+  "support_format_cpiosvr4nocrc",
+  "support_format_cpiosvr4crc",
+  "support_format_cpioafiolarge",
+  "support_format_cpiopwb",
+  "support_format_shar",
+  "support_format_sharbase",
+  "support_format_shardump",
+  "support_format_tar",
+  "support_format_tarustar",
+  "support_format_tarpaxinterchange",
+  "support_format_tarpaxrestricted",
+  "support_format_targnutar",
+  "support_format_iso9660",
+  "support_format_iso9660rockridge",
+  "support_format_zip",
+  "support_format_empty",
+  "support_format_ar",
+  "support_format_argnu",
+  "support_format_arbsd",
+  "support_format_mtree",
+  "support_format_raw",
+  "support_format_xar",
+  "support_format_lha",
+  "support_format_cab",
+  "support_format_rar",
+  "support_format_p7zip",
+  "support_format_warc",
+  "support_format_rarv5",
+]
+support_format_cpio = []
+support_format_cpioposix = []
+support_format_cpiobinle = []
+support_format_cpiobinbe = []
+support_format_cpiosvr4nocrc = []
+support_format_cpiosvr4crc = []
+support_format_cpioafiolarge = []
+support_format_cpiopwb = []
+support_format_shar = []
+support_format_sharbase = []
+support_format_shardump = []
+support_format_tar = []
+support_format_tarustar = []
+support_format_tarpaxinterchange = []
+support_format_tarpaxrestricted = []
+support_format_targnutar = []
+support_format_iso9660 = []
+support_format_iso9660rockridge = []
+support_format_zip = []
+support_format_empty = []
+support_format_ar = []
+support_format_argnu = []
+support_format_arbsd = []
+support_format_mtree = []
+support_format_raw = []
+support_format_xar = []
+support_format_lha = []
+support_format_cab = []
+support_format_rar = []
+support_format_p7zip = []
+support_format_warc = []
+support_format_rarv5 = []
