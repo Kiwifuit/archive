@@ -68,9 +68,14 @@ impl ArchiveReader {
     }
 
     /// Returns an iterator containing the contents of
-    /// the archive.
-    pub fn entries<'a>(&'a self) -> ArchiveIterator<'a> {
-        ArchiveIterator { archive: self }
+    /// the archive if and only if the `open()` method
+    /// has been called.
+    pub fn entries<'a>(&'a self) -> Option<ArchiveIterator<'a>> {
+        if self.handle.is_null() {
+            None
+        } else {
+            Some(ArchiveIterator { archive: self })
+        }
     }
 
     /// Closes the file and frees the resources
@@ -391,9 +396,9 @@ mod tests {
         dbg!(&result);
 
         assert!(result.is_ok());
-        assert!(reader.entries().count() >= 1);
+        assert!(reader.entries().unwrap().count() >= 1);
 
-        for file in reader.entries() {
+        for file in reader.entries().unwrap() {
             println!(
                 "Found\t: {} ({} bytes)",
                 file.archive_path().display(),

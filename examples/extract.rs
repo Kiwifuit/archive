@@ -14,8 +14,7 @@ fn main() {
     reader.open().unwrap();
 
     info!("Hello!");
-
-    for file in reader.entries() {
+    for file in reader.entries().unwrap() {
         info!("Found: {:?}", file.archive_path().display(),);
 
         let extracted = file.extract(Some(&base_dir));
