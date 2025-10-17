@@ -389,7 +389,9 @@ mod tests {
 
         let result = reader.open();
         dbg!(&result);
+
         assert!(result.is_ok());
+        assert!(reader.entries().count() >= 1);
 
         for file in reader.entries() {
             println!(
