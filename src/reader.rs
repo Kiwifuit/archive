@@ -1,5 +1,4 @@
 use std::cell::UnsafeCell;
-use std::ffi::OsStr;
 use std::ffi::{CStr, CString};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
@@ -11,7 +10,7 @@ use archive_sys::archive;
 use archive_sys::archive_entry;
 
 use bon::Builder;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 
 use crate::core::{ArchiveFilter, ArchiveFormat};
 use crate::error::Result;
@@ -19,9 +18,6 @@ use crate::ArchiveOptions;
 
 #[derive(Builder)]
 pub struct ArchiveReader {
-    #[builder(skip = false)]
-    open: bool,
-
     #[builder(skip = std::ptr::null_mut())]
     handle: *mut archive,
 
@@ -42,6 +38,9 @@ pub struct ArchiveReader {
     /// for more information
     handle_opts: ArchiveOptions,
 
+    #[builder(into)]
+    path: PathBuf,
+
     #[builder(skip)]
     _marker: PhantomData<UnsafeCell<archive>>,
 }
@@ -49,42 +48,22 @@ pub struct ArchiveReader {
 impl ArchiveReader {
     /// Opens `file_path` and marks the current instance as
     /// having opened a file. This means that even after closing
-    pub fn open<P: AsRef<OsStr>>(&mut self, file_path: P) -> Result<()> {
-        if self.open {
-            warn!("Archive already opened a file! Skipping...");
+    pub fn open(&mut self) -> Result<()> {
+        if !self.handle.is_null() {
+            warn!("Attempting to re-open an already opened archive!");
             return Err(crate::error::Error::AlreadyOpen);
-        } else if self.handle.is_null() {
-            let handle = unsafe { archive_sys::archive_read_new() };
-
-            if handle.is_null() {
-                return Err(crate::error::Error::Initialization);
-            }
-
-            self.handle = handle;
         }
 
+        let handle = unsafe { archive_sys::archive_read_new() };
+
+        if handle.is_null() {
+            return Err(crate::error::Error::Initialization);
+        }
+
+        self.handle = handle;
         self.set_options()?;
+        self.open_file()?;
 
-        info!("Opening: {:?}", file_path.as_ref().display());
-        let open_result = unsafe {
-            let filename =
-                CString::new(file_path.as_ref().as_encoded_bytes())?.into_raw() as *const i8;
-
-            archive_sys::archive_read_open_filename(
-                self.handle,
-                filename,
-                self.handle_opts.handle_block_size,
-            )
-        };
-
-        if open_result != archive_sys::ARCHIVE_OK as i32 {
-            return Err(crate::error::Error::Archive {
-                message: crate::get_error(self.handle, open_result).to_string(),
-                code: open_result,
-            });
-        }
-
-        self.open = true;
         Ok(())
     }
 
@@ -105,7 +84,7 @@ impl ArchiveReader {
     /// Does nothing when the archive isn't
     /// `.open()`
     pub fn close(&mut self) -> Result<()> {
-        if !self.open {
+        if self.handle.is_null() {
             return Ok(());
         }
 
@@ -126,8 +105,24 @@ impl ArchiveReader {
                 code: ret,
             });
         }
+        Ok(())
+    }
 
-        self.open = false;
+    fn open_file(&mut self) -> Result<()> {
+        let open_result = unsafe {
+            let filename = CString::new(self.path.as_mut_os_string().as_encoded_bytes())?.into_raw()
+                as *const i8;
+
+            archive_sys::archive_read_open_filename(self.handle, filename, self.chunk_size)
+        };
+
+        if open_result != archive_sys::ARCHIVE_OK as i32 {
+            return Err(crate::error::Error::Archive {
+                message: crate::get_error(self.handle, open_result).to_string(),
+                code: open_result,
+            });
+        }
+
         Ok(())
     }
 
@@ -387,9 +382,12 @@ mod tests {
             .format(ArchiveFormat::Tar)
             .build();
 
-        let mut reader = ArchiveReader::builder().handle_opts(options).build();
+        let mut reader = ArchiveReader::builder()
+            .path("archive.tar.gz")
+            .handle_opts(options)
+            .build();
 
-        let result = reader.open("archive.tar.gz");
+        let result = reader.open();
         dbg!(&result);
         assert!(result.is_ok());
 
