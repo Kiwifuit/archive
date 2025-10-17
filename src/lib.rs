@@ -3,7 +3,7 @@
 pub mod core;
 pub mod error;
 pub mod reader;
-// pub mod writer;
+pub mod writer;
 
 pub use core::ArchiveOptions;
 pub use reader::ArchiveReader;

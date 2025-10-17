@@ -12,4 +12,7 @@ pub enum Error {
 
     #[error("Archive cannot be opened more than once")]
     AlreadyOpen,
+
+    #[error("internal null byte included: {0}")]
+    NullString(#[from] std::ffi::NulError),
 }

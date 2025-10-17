@@ -43,7 +43,7 @@ pub struct ArchiveReader {
     handle_opts: ArchiveOptions,
 
     #[builder(skip)]
-    _marker: PhantomData<*mut UnsafeCell<archive>>,
+    _marker: PhantomData<UnsafeCell<archive>>,
 }
 
 impl ArchiveReader {
@@ -67,11 +67,12 @@ impl ArchiveReader {
 
         info!("Opening: {:?}", file_path.as_ref().display());
         let open_result = unsafe {
+            let filename =
+                CString::new(file_path.as_ref().as_encoded_bytes())?.into_raw() as *const i8;
+
             archive_sys::archive_read_open_filename(
                 self.handle,
-                CString::new(file_path.as_ref().as_encoded_bytes())
-                    .unwrap()
-                    .into_raw() as *const i8,
+                filename,
                 self.handle_opts.handle_block_size,
             )
         };
